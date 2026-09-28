@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM Workshop App</title>
+  <style>
+    :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#667085; --line:#e4e7ec; --accent:#1f5fa8; --err:#b42318; --errbg:#fef3f2; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+    header { background:var(--card); border-bottom:1px solid var(--line); padding:14px 20px; display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; }
+    header h1 { font-size:18px; margin:0; }
+    header small { color:var(--muted); }
+    main { max-width:900px; margin:20px auto; padding:0 16px; }
+    nav { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+    nav button { border:1px solid var(--line); background:var(--card); padding:6px 12px; border-radius:6px; cursor:pointer; font:inherit; }
+    nav button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; }
+    label { display:block; font-weight:600; margin:10px 0 4px; }
+    .hint { color:var(--muted); font-size:13px; margin:0 0 8px; }
+    textarea, input { width:100%; font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; }
+    textarea { min-height:140px; resize:vertical; }
+    .row { display:flex; gap:10px; align-items:center; margin-top:12px; }
+    .primary { background:var(--accent); color:#fff; border:0; padding:8px 18px; border-radius:6px; font:inherit; cursor:pointer; }
+    .primary:disabled { opacity:.6; cursor:wait; }
+    #result { margin-top:16px; display:none; }
+    .meta { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+    .pill { background:#eef4fb; color:var(--accent); border-radius:999px; padding:2px 10px; font-size:13px; }
+    pre { white-space:pre-wrap; word-break:break-word; margin:0; font:14px/1.5 ui-monospace,Menlo,Consolas,monospace; }
+    .error { background:var(--errbg); color:var(--err); border-color:#fecdca; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>LLM Workshop App</h1>
+  <small>backend: {{ backend_url }}</small>
+</header>
+<main>
+  <nav id="tabs"></nav>
+  <div class="card">
+    <p class="hint" id="hint"></p>
+    <div id="fields"></div>
+    <div class="row">
+      <button class="primary" id="send">Send</button>
+      <span class="hint" id="status"></span>
+    </div>
+  </div>
+  <div class="card" id="result">
+    <div class="meta" id="meta"></div>
+    <pre id="output"></pre>
+  </div>
+</main>
+<script>
+const TASKS = {{ tasks | tojson }};
+const SESSION_ID = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+
+// Per-task form definition: title, hint, fields (name, label, type, placeholder) and request body builder.
+const FORMS = {
+  support:   { title: "Customer Support", hint: "Dynamic routing: intent is detected, then routed to the technical / billing / pre-sale LLM.",
+               fields: [["message", "Message", "textarea", "I was charged twice for my subscription this month."]],
+               body: v => ({ message: v.message, session_id: SESSION_ID }) },
+  summarize: { title: "Summarize", hint: "Business Analysis: text summarization LLM.",
+               fields: [["text", "Text", "textarea", "Paste a report, email or article..."]] },
+  generate:  { title: "Generate", hint: "Content Marketing: text generation LLM.",
+               fields: [["prompt", "Brief", "textarea", "Launch post for our new AI note-taking app"], ["tone", "Tone", "input", "professional"]] },
+  extract:   { title: "Extract Insights", hint: "Content Marketing: insight extraction LLM (returns JSON).",
+               fields: [["text", "Text", "textarea", "Paste customer feedback or meeting notes..."]] },
+  classify:  { title: "Classify", hint: "Topic classification. Categories are optional (comma separated).",
+               fields: [["text", "Text", "textarea", "Apple unveiled a new chip for its laptops."], ["categories", "Categories", "input", "technology, business, sports, other"]],
+               body: v => ({ text: v.text, categories: v.categories ? v.categories.split(",").map(s => s.trim()).filter(Boolean) : null }) },
+  sentiment: { title: "Sentiment", hint: "Returns positive, negative or neutral.",
+               fields: [["text", "Text", "textarea", "The delivery was late and nobody answered my calls."]] },
+  intent:    { title: "Intent", hint: "Returns technical, billing, presales or general.",
+               fields: [["text", "Text", "textarea", "How much is the enterprise plan?"]] },
+  chat:      { title: "Chat", hint: "General-purpose assistant.",
+               fields: [["message", "Message", "textarea", "Explain LLMOps in plain English."]] },
+};
+
+let current = TASKS[0];
+const $ = id => document.getElementById(id);
+
+function renderTabs() {
+  $("tabs").innerHTML = "";
+  if (TASKS.length < 2) { $("tabs").style.display = "none"; }
+  TASKS.forEach(t => {
+    const b = document.createElement("button");
+    b.textContent = FORMS[t].title;
+    b.className = t === current ? "active" : "";
+    b.onclick = () => { current = t; renderTabs(); renderForm(); };
+    $("tabs").appendChild(b);
+  });
+}
+
+function renderForm() {
+  const f = FORMS[current];
+  $("hint").textContent = f.hint;
+  $("fields").innerHTML = "";
+  f.fields.forEach(([name, label, type, placeholder]) => {
+    const l = document.createElement("label");
+    l.textContent = label; l.htmlFor = "f_" + name;
+    const el = document.createElement(type);
+    el.id = "f_" + name; el.placeholder = placeholder;
+    $("fields").append(l, el);
+  });
+}
+
+function pill(text) { const s = document.createElement("span"); s.className = "pill"; s.textContent = text; return s; }
+
+async function send() {
+  const f = FORMS[current];
+  const values = {};
+  f.fields.forEach(([name, , , placeholder]) => {
+    const v = $("f_" + name).value.trim();
+    values[name] = v || (name === "tone" ? placeholder : "");
+  });
+  const body = f.body ? f.body(values) : values;
+
+  $("send").disabled = true; $("status").textContent = "Waiting for the model...";
+  $("result").style.display = "none"; $("result").classList.remove("error"); $("meta").innerHTML = "";
+  try {
+    const resp = await fetch("/api/" + current, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await resp.json().catch(() => ({ detail: "Non-JSON response (HTTP " + resp.status + ")" }));
+    if (!resp.ok) {
+      $("result").classList.add("error");
+      $("meta").append(pill("HTTP " + resp.status));
+      $("output").textContent = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail ?? data, null, 2);
+    } else {
+      ["model", "label", "routed_to"].forEach(k => data[k] && $("meta").append(pill(k + ": " + data[k])));
+      if (data.latency_ms != null) $("meta").append(pill(data.latency_ms + " ms"));
+      (data.guardrails || []).forEach(g => $("meta").append(pill("guardrail: " + g)));
+      $("output").textContent = data.output;
+    }
+  } catch (e) {
+    $("result").classList.add("error");
+    $("output").textContent = "Request failed: " + e;
+  } finally {
+    $("result").style.display = "block"; $("send").disabled = false; $("status").textContent = "";
+  }
+}
+
+$("send").onclick = send;
+renderTabs(); renderForm();
+</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+# Run the whole app on one Docker network:
+#   docker compose up -d --build     ->  frontend http://localhost:5000, API http://localhost:8080/swagger-ui.html
+#   docker compose logs -f llm-multiroute
+#   docker compose down
+# Secrets come from llm-multiroute/.env (copy .env.template). Never bake them into images.
+
+services:
+  llm-multiroute:
+    build: ./llm-multiroute
+    image: llm-multiroute:local
+    env_file:
+      - path: ./llm-multiroute/.env
+        required: false
+    environment:
+      LOG_DIR: /app/logs
+    ports:
+      - "8080:8080"
+    volumes:
+      - api-logs:/app/logs # persist JSON logs across restarts
+    networks: [llm-net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  llm-frontend-python:
+    build: ./llm-frontend-python
+    image: llm-frontend-python:local
+    environment:
+      BACKEND_URL: http://llm-multiroute:8080 # service name resolves on llm-net
+    ports:
+      - "5000:5000" # macOS AirPlay uses 5000: change to "5001:5000" if needed
+    depends_on:
+      llm-multiroute:
+        condition: service_healthy
+    networks: [llm-net]
+    restart: unless-stopped
+
+volumes:
+  api-logs:
+
+networks:
+  llm-net:
+    driver: bridge

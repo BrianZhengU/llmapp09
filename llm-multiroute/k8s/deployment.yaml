@@ -1,0 +1,103 @@
+# LLM Multi-Route API on Kubernetes (minikube).
+#   kubectl apply -f ./k8s/deployment.yaml
+#   kubectl -n llm-multiroute-backend create secret generic llm-multiroute-secrets \
+#     --from-literal=OLLAMA_API_KEY=<key> [--from-literal=LANGFUSE_PUBLIC_KEY=... ...]
+#   kubectl rollout restart deploy/llm-multiroute-app -n llm-multiroute-backend
+#   kubectl port-forward svc/llm-multiroute-service -n llm-multiroute-backend 8080
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-multiroute-backend
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-multiroute-config
+  namespace: llm-multiroute-backend
+data:
+  OLLAMA_BASE_URL: "https://ollama.com"
+  DEFAULT_MODEL: "gpt-oss:20b"
+  LOG_LEVEL: "INFO"
+  LOG_DIR: "/app/logs"
+  GUARDRAIL_PII_MODE: "redact"
+  LANGFUSE_HOST: "https://cloud.langfuse.com"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-multiroute-app
+  namespace: llm-multiroute-backend
+  labels:
+    app: llm-multiroute
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: llm-multiroute
+  template:
+    metadata:
+      labels:
+        app: llm-multiroute
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: llm-multiroute
+          image: your-dockerhub-id/llm-multiroute:1.0.0 # <-- change to your Docker Hub account ID
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: llm-multiroute-config
+            - secretRef:
+                name: llm-multiroute-secrets # OLLAMA_API_KEY, LANGFUSE_*, OPENAI_API_KEY
+                optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: logs
+              mountPath: /app/logs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-multiroute-service
+  namespace: llm-multiroute-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: llm-multiroute
+  ports:
+    - port: 8080
+      targetPort: 8080

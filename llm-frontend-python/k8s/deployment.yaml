@@ -1,0 +1,81 @@
+# Flask frontend on Kubernetes (minikube).
+#   kubectl apply -f ./k8s/deployment.yaml
+#   kubectl port-forward svc/llm-frontend-service -n llm-frontend 5000
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-frontend-app
+  namespace: llm-frontend
+  labels:
+    app: llm-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: llm-frontend
+  template:
+    metadata:
+      labels:
+        app: llm-frontend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: llm-frontend
+          image: your-dockerhub-id/llm-frontend-python:1.0.0 # <-- change to your Docker Hub account ID
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+          env:
+            # Cross-namespace service DNS: <service>.<namespace>.svc.cluster.local
+            - name: BACKEND_URL
+              value: http://llm-multiroute-service.llm-multiroute-backend.svc.cluster.local:8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp # gunicorn worker heartbeat files
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-frontend-service
+  namespace: llm-frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: llm-frontend
+  ports:
+    - port: 5000
+      targetPort: 5000

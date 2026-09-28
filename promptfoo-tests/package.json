@@ -1,0 +1,16 @@
+{
+  "name": "promptfoo-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "promptfoo prompt tests for the LLM Multi-Route API",
+  "scripts": {
+    "eval": "promptfoo eval --no-cache --output results/output.json",
+    "view": "promptfoo view"
+  },
+  "devDependencies": {
+    "promptfoo": "latest"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

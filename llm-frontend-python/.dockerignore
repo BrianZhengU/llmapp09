@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.template
+__pycache__/
+*.pyc
+k8s/
+build.sh
+Dockerfile
+.dockerignore
